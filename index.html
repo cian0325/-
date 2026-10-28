@@ -858,6 +858,7 @@ function vSettings(){
     <p class="muted" style="margin:0">資料只存在這支手機的瀏覽器裡。建議每月備份一次，換手機時用「還原」貼回去。學生名單檔（.json）也從這裡匯入，不會覆蓋原本的資料。</p>
     <div class="grid2"><button class="btn" onclick="App.exportData()">複製備份文字</button><button class="btn" onclick="App.downloadData()">下載備份檔</button></div>
     <textarea class="inp" id="backup-box" rows="3" placeholder="貼上備份文字或學生名單後按「還原」" style="font-family:var(--f-num);font-size:12px"></textarea>
+    ${inFrame()?'':`<button class="btn block" onclick="App.seedOpen()">匯入網站上的加密名單</button>`}
     <div class="grid2"><button class="btn" onclick="App.askImport()">還原</button><label class="btn" style="text-align:center">選擇備份檔<input type="file" id="backup-file" accept=".json,application/json" hidden onchange="App.importFile(this)"></label></div>
   </div></div>
   <button class="btn danger block" onclick="App.askReset()">清除所有資料</button>
@@ -1013,6 +1014,32 @@ function rosterApply(d,from){
       const paid=!!d.bill.paid&&!(d.bill.unpaid||[]).includes(st.name);
       S.purchases.push({id:uid(),sid:st.id,kind:'term',termId:T.id,lessons:n,amount:n*T.price,adj:0,adjReason:'',date,paid,paidDate:paid?date:'',method:paid?(d.bill.method||''):'',note:''});P.bills++;P.billAmt+=n*T.price;if(!paid)P.unpaid=(P.unpaid||0)+1}});
   return P;
+}
+
+/* ---------- 加密預設名單（GitHub 上的 seed.enc.json） ---------- */
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function decryptSeed(enc,pw){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(enc.salt),iterations:enc.iter,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(enc.iv)},key,b64(enc.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+let seedEnc=null;
+async function checkSeed(force){
+  if(inFrame()||!window.crypto||!crypto.subtle)return;
+  try{const r=await fetch('seed.enc.json',{cache:'no-store'});if(!r.ok)return;seedEnc=await r.json()}catch(e){return}
+  if(!seedEnc||!seedEnc.id)return;
+  const st=S.settings.seeds||{};
+  if(!force&&st[seedEnc.id])return;
+  seedSheet();
+}
+function seedSheet(){
+  sheet(`<h2>匯入${esc(seedEnc.title||'預設名單')}</h2><div class="stack">
+  <p class="muted" style="margin:0">網站上有一份加密的名單（學生、時段、期別、停課、繳費）。輸入密碼後會先顯示內容，確認了才匯入。</p>
+  <label class="f">密碼<input id="seed-pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter')App.seedGo()"></label>
+  <p id="seed-err" class="muted" style="margin:0;color:var(--seal)" hidden>密碼不對，請再試一次</p>
+  <button class="btn primary block" id="seed-btn" onclick="App.seedGo()">解鎖名單</button>
+  <button class="btn block" onclick="App.seedSkip()">先不要，之後到設定匯入</button></div>`);
 }
 
 /* ---------- 學生查詢 ---------- */
@@ -1177,7 +1204,13 @@ const App=window.App={
   go(t){UI.tab=t;render();window.scrollTo(0,0)},
   closeForm,clScope,lookup,lkSearch,report,_tick:()=>tick(880,.1),
   termEnd:termEndSheet,
-  rosterGo(){const P=rosterApply(App._roster,$('#ri-from').value||today());save();UI.tab='students';UI.lv='all';closeSheet();render();toast(`已匯入 ${P.newStu.length} 位學生、${P.newSlots.length} 個時段${P.bills?`、${P.bills} 張繳費單`:''}`)},
+  async seedGo(){const pw=$('#seed-pw').value,b=$('#seed-btn');if(!pw)return;b.disabled=true;b.textContent='解鎖中…';
+    try{const d=await decryptSeed(seedEnc,pw);App._seedId=seedEnc.id;rosterImport(d)}
+    catch(e){$('#seed-err').hidden=false;b.disabled=false;b.textContent='解鎖名單';haptic('light')}},
+  seedSkip(){S.settings.seeds=Object.assign({},S.settings.seeds,{[seedEnc.id]:'skipped'});save();closeSheet();toast('之後可到「設定 → 備份與還原」匯入')},
+  seedOpen(){if(seedEnc)seedSheet();else checkSeed(true).then(()=>{if(!seedEnc)toast('網站上沒有預設名單')})},
+  rosterGo(){if(App._seedId){S.settings.seeds=Object.assign({},S.settings.seeds,{[App._seedId]:today()});App._seedId=null}
+    const P=rosterApply(App._roster,$('#ri-from').value||today());save();UI.tab='students';UI.lv='all';closeSheet();render();toast(`已匯入 ${P.newStu.length} 位學生、${P.newSlots.length} 個時段${P.bills?`、${P.bills} 張繳費單`:''}`)},
   teCopy(i){const te=termEndInfo({T:termById(App._te.T),N:nextTerm(termById(App._te.T))});copyText(termEndMsg(te.rows[i],te),$('#te-text'))},
   teCopyAll(){const te=termEndInfo({T:termById(App._te.T),N:nextTerm(termById(App._te.T))});copyText(te.rows.map(x=>termEndMsg(x,te)).join('\n\n────────\n\n'),$('#te-text'))},
   teCreditAll(){const T=termById(App._te.T),N=nextTerm(T),te=termEndInfo({T,N});
@@ -1320,6 +1353,7 @@ const App=window.App={
 S=load()||seed();
 S.levels=S.levels||defaultLevels();S.confirmed=S.confirmed||{};S.makeups=S.makeups||[];S.closures=S.closures||[];
 render();
+setTimeout(()=>checkSeed(false),400);
 })();
 </script>
 
