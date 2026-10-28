@@ -333,11 +333,27 @@ nav.tabs button:active{transform:scale(.88)}
 .topic{display:flex;align-items:baseline;gap:10px;padding:10px 14px;border-radius:14px;background:var(--glass);box-shadow:var(--shadow);border-left:4px solid var(--seal)}
 .topic span{font-size:12px;color:var(--ink-2);white-space:nowrap}
 .topic b{font-family:var(--f-display);font-size:19px}
+
+.hd-r{display:flex;align-items:center;gap:10px}
+.cloud-ind{width:36px;height:36px;border-radius:50%;border:0;display:grid;place-items:center;background:var(--glass);box-shadow:var(--shadow);position:relative;color:var(--ink-2)}
+.cloud-ind svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
+.cloud-ind::after{content:"";position:absolute;right:5px;bottom:6px;width:9px;height:9px;border-radius:50%;background:var(--ink-2);box-shadow:0 0 0 2px var(--card)}
+.cloud-ind[data-st="ok"]{color:var(--green)}.cloud-ind[data-st="ok"]::after{background:var(--green)}
+.cloud-ind[data-st="syncing"]::after{background:var(--indigo);animation:blink 1s infinite}
+.cloud-ind[data-st="offline"]::after,.cloud-ind[data-st="login"]::after{background:var(--amber)}
+.cloud-ind[data-st="error"]{color:var(--seal)}.cloud-ind[data-st="error"]::after{background:var(--seal)}
+@keyframes blink{50%{opacity:.25}}
+.cloud-st{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--green) 10%,transparent)}
+.cloud-st b{color:var(--green)}.cloud-st span{font-size:12px;color:var(--ink-2)}
+.cloud-st[data-st="error"]{background:color-mix(in srgb,var(--seal) 10%,transparent)}.cloud-st[data-st="error"] b{color:var(--seal)}
+.cloud-st[data-st="offline"]{background:color-mix(in srgb,var(--amber) 12%,transparent)}.cloud-st[data-st="offline"] b{color:var(--amber)}
+.cloud-st[data-st="syncing"] b{color:var(--indigo)}
+@media (prefers-reduced-motion:reduce){.cloud-ind::after{animation:none!important}}
 </style>
 
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap">
-  <header class="top"><div><span class="studio" id="studio"></span><h1 id="title">點名</h1></div><span class="seal-mark" aria-hidden="true">堂</span></header>
+  <header class="top"><div><span class="studio" id="studio"></span><h1 id="title">點名</h1></div><div class="hd-r"><button class="cloud-ind" id="cloud-ind" hidden onclick="App.go('settings')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.4 9.1 4.5 4.5 0 0 0 7 18z"/></svg></button><span class="seal-mark" aria-hidden="true">堂</span></div></header>
   <main id="main"></main>
 </div>
 <nav class="tabs" id="tabs">
@@ -373,7 +389,7 @@ const termEnd=(start,weeks)=>addDays(start,weeks*7-1);
 /* ---------- storage ---------- */
 const KEY='rollbook.v3';
 function load(){try{const t=localStorage.getItem(KEY);return t?JSON.parse(t):null}catch(e){return null}}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(typeof CLOUD!=='undefined'&&CLOUD.user)cloudSchedule()}
 let S;
 
 /* ---------- 時段 ---------- */
@@ -838,6 +854,8 @@ function vSettings(){
     return `<div class="card">${up.map(c=>`<div class="li"><div class="main"><div class="t num">${c.date}（${WD[wd(c.date)]}）${c.date<td?' <span class="pill plan">已過</span>':''}</div><div class="s">${c.slotId?esc(slotFull(slot(c.slotId))):'全天停課'}${c.reason?' · '+esc(c.reason):''}</div></div><button class="btn sm" aria-label="取消停課" onclick="App.unclose('${c.id}')">✕</button></div>`).join('')||'<div class="empty">沒有停課日<br><span class="muted">颱風假、國定假日、老師請假都可以在這裡設定</span></div>'}</div>`})()}
   <div class="row"><h3 class="sec-title" style="margin:0">期別</h3><span class="spacer"></span><button class="btn sm primary" onclick="App.termForm()">＋ 新增一期</button></div>
   <div class="card">${termsSorted().map(t=>`<button class="li" onclick="App.termForm('${t.id}')"><div class="main"><div class="t">${esc(t.name)}</div><div class="s num">${t.start} ～ ${tEnd(t)}</div></div><div class="r num">${t.weeks} 週<br><span class="muted">每堂 ${money(t.price)}</span></div></button>`).join('')||'<div class="empty">尚未設定期別</div>'}</div>
+  ${inFrame()?'':`<h3 class="sec-title" style="margin:0">雲端同步</h3>
+  <div class="card" style="padding:14px"><div class="stack" id="cloud-card">${cloudCardInner()}</div></div>`}
   <h3 class="sec-title" style="margin:0">匯出 Excel</h3>
   <div class="card" style="padding:14px"><div class="stack">
     <p class="muted" style="margin:0">匯出收入總表、繳費紀錄、點名紀錄、學生出缺勤、學生名單，方便報稅或給會計。</p>
@@ -1198,8 +1216,219 @@ function icsWrap(evs){return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//rollboo
 function mkEvent(m){const s=stu(m.sid),sl=slot(m.slotId),ab=m.absId&&S.records.find(r=>r.id===m.absId),lv=level(s.level);
   return icsEvent('mk-'+m.id,m.date,sl,`補課｜${s.name}${lv?' '+lv.name:''}`,`${s.name} 補課${ab?'（補 '+md(ab.date)+' 沒上的課）':''}\n時段：${slotFull(sl)}${s.phone?'\n電話：'+s.phone:''}`)}
 
+/* ---------- 雲端同步（Firebase Firestore） ----------
+   資料分段存：users/{uid}/parts/core（記錄以外的全部）與 users/{uid}/parts/r-YYYY-MM（每月點名紀錄）。
+   每段有 rev（版本號）。上傳用 transaction：雲端 rev 和本機記得的 rev 不同，代表另一台裝置改過，
+   就用「上次同步內容」做三方合併（同一筆兩邊都改，以這台為準；一邊刪除、另一邊沒改就刪除）。 */
+const FB_VER='10.12.2';
+const CLOUD={cfg:null,user:null,db:null,auth:null,status:'off',msg:'',timer:null,unsub:null,busy:false,again:false,remote:{},ready:false};
+const CM_KEY='rollbook.cloud',CB_KEY='rollbook.cloud.base';
+function lsGet(k,d){try{const t=localStorage.getItem(k);return t?JSON.parse(t):d}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+let CM=lsGet(CM_KEY,{});          // {cfg, uid, email, base:{part:{rev,hash}}, lastSync, device}
+let CB=lsGet(CB_KEY,{});          // {part: json}  上次同步時的內容，三方合併用
+if(!CM.device){CM.device=Math.random().toString(36).slice(2,12);lsSet(CM_KEY,CM)}
+const cmSave=()=>{lsSet(CM_KEY,CM);lsSet(CB_KEY,CB)};
+
+function hashStr(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193)}return (h>>>0).toString(36)+'.'+s.length}
+function splitParts(st){
+  const {records,...core}=st;const p={core:JSON.stringify(core)},m={};
+  for(const r of records||[]){const k='r-'+r.date.slice(0,7);(m[k]=m[k]||[]).push(r)}
+  for(const k in m)p[k]=JSON.stringify(m[k]);
+  return p;
+}
+function joinParts(p){
+  const core=JSON.parse(p.core||'{}');core.records=[];
+  for(const k of Object.keys(p).sort())if(k.startsWith('r-'))core.records.push(...JSON.parse(p[k]||'[]'));
+  return core;
+}
+const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const isObj=v=>v&&typeof v==='object'&&!Array.isArray(v);
+const isIdArr=a=>Array.isArray(a)&&a.every(x=>isObj(x)&&typeof x.id==='string');
+// 三方合併：b=上次同步、l=這台、r=雲端
+function merge3(b,l,r){
+  if(same(l,r))return l;
+  if(b!==undefined&&same(b,l))return r;
+  if(b!==undefined&&same(b,r))return l;
+  if(isIdArr(l)&&isIdArr(r)&&(b===undefined||isIdArr(b))){
+    const B=new Map((b||[]).map(x=>[x.id,x])),L=new Map(l.map(x=>[x.id,x])),R=new Map(r.map(x=>[x.id,x]));
+    const out=[];
+    for(const x of l){const id=x.id;
+      if(R.has(id))out.push(merge3(B.get(id),x,R.get(id)));
+      else if(!(B.has(id)&&same(B.get(id),x)))out.push(x);}      // 雲端刪了、這台沒改 → 刪
+    for(const x of r){const id=x.id;if(L.has(id))continue;
+      if(!(B.has(id)&&same(B.get(id),x)))out.push(x);}             // 這台刪了、雲端沒改 → 刪
+    return out;
+  }
+  if(isObj(l)&&isObj(r)&&(b===undefined||isObj(b))){
+    const out={},keys=new Set([...Object.keys(l),...Object.keys(r)]),bb=b||{};
+    for(const k of keys){const inL=k in l,inR=k in r,inB=k in bb;
+      if(inL&&inR)out[k]=merge3(inB?bb[k]:undefined,l[k],r[k]);
+      else if(inL){if(!(inB&&same(bb[k],l[k])))out[k]=l[k]}
+      else if(!(inB&&same(bb[k],r[k])))out[k]=r[k];}
+    return out;
+  }
+  return l;
+}
+function normalize(){
+  S.settings=Object.assign({studio:'',unitPrice:400},S.settings);
+  S.levels=S.levels||defaultLevels();S.slots=S.slots||[];S.terms=S.terms||[];S.students=S.students||[];S.purchases=S.purchases||[];
+  S.records=S.records||[];S.makeups=S.makeups||[];S.closures=S.closures||[];S.confirmed=S.confirmed||{};
+}
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+/* 設定：貼上 Firebase 的 firebaseConfig（JS 物件或 JSON 都可以） */
+function parseFbConfig(t){
+  const o={};for(const m of String(t).matchAll(/["']?(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId|measurementId)["']?\s*:\s*["']([^"']+)["']/g))o[m[1]]=m[2];
+  return o.apiKey&&o.projectId&&o.appId?o:null;
+}
+const cloudCfg=()=>CM.cfg||window.FIREBASE_CONFIG||null;
+
+function loadScript(src){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>no(new Error('load '+src));document.head.appendChild(s)})}
+async function fbInit(){
+  if(CLOUD.ready)return true;const cfg=cloudCfg();if(!cfg)return false;
+  try{
+    if(!window.firebase||!firebase.firestore){const base=`https://www.gstatic.com/firebasejs/${FB_VER}/`;
+      if(!window.firebase)await loadScript(base+'firebase-app-compat.js');
+      await Promise.all([loadScript(base+'firebase-auth-compat.js'),loadScript(base+'firebase-firestore-compat.js')]);}
+    const app=firebase.apps.length?firebase.app():firebase.initializeApp(cfg);
+    CLOUD.auth=app.auth();CLOUD.db=app.firestore();CLOUD.ready=true;
+    CLOUD.auth.onAuthStateChanged(u=>onUser(u));
+    return true;
+  }catch(e){setCloud('error','連不上雲端服務，請確認網路');return false}
+}
+function setCloud(st,msg){CLOUD.status=st;CLOUD.msg=msg||'';cloudBadge();if(UI.tab==='settings'&&$('#cloud-card'))$('#cloud-card').innerHTML=cloudCardInner()}
+function cloudBadge(){const b=$('#cloud-ind');if(!b)return;const st=CLOUD.status;
+  b.hidden=!cloudCfg();b.dataset.st=st;
+  b.setAttribute('aria-label',{ok:'已同步',syncing:'同步中',offline:'離線，連線後會自動同步',error:'同步出錯',login:'尚未登入雲端',off:'雲端未開啟'}[st]||'')}
+const partsCol=()=>CLOUD.db.collection('users').doc(CLOUD.user.uid).collection('parts');
+
+async function onUser(u){
+  if(CLOUD.unsub){CLOUD.unsub();CLOUD.unsub=null}
+  CLOUD.user=u||null;CLOUD.remote={};
+  if(!u){setCloud('login');return}
+  if(CM.uid!==u.uid){CM.uid=u.uid;CM.base={};CB={};}
+  CM.email=u.email;cmSave();
+  setCloud('syncing');
+  try{
+    const qs=await partsCol().get();qs.forEach(d=>CLOUD.remote[d.id]=d.data());
+    const hasRemote=Object.keys(CLOUD.remote).length>0,localEmpty=S.sample||!S.students.length;
+    if(!hasRemote){if(!S.sample)await cloudPush(true);else setCloud('ok')}
+    else if(localEmpty)takeRemote();
+    else if(!Object.keys(CM.base||{}).length){firstLinkSheet();return}
+    else{applyRemote();await cloudPush(true)}
+    listen();
+  }catch(e){setCloud(navigator.onLine?'error':'offline',errMsg(e))}
+}
+function listen(){
+  if(CLOUD.unsub)CLOUD.unsub();
+  CLOUD.unsub=partsCol().onSnapshot(qs=>{qs.docChanges().forEach(c=>{if(c.type==='removed')delete CLOUD.remote[c.doc.id];else CLOUD.remote[c.doc.id]=c.doc.data()});applyRemote()},
+    e=>setCloud('error',errMsg(e)));
+}
+// 雲端整份取代這台
+function takeRemote(){
+  const p={};for(const [k,v] of Object.entries(CLOUD.remote))p[k]=v.json;
+  S=joinParts(p);normalize();saveLocal();
+  CM.base={};CB={};for(const [k,v] of Object.entries(CLOUD.remote)){CM.base[k]={rev:v.rev,hash:hashStr(v.json)};CB[k]=v.json}
+  CM.lastSync=Date.now();cmSave();render();setCloud('ok');toast('已載入雲端資料');
+}
+// 收到雲端新版本：這台沒改過的段落直接套用；改過的交給上傳時合併
+function applyRemote(){
+  const parts=splitParts(S),base=CM.base||(CM.base={});let changed=false,dirty=false;
+  for(const [k,r] of Object.entries(CLOUD.remote)){
+    const b=base[k]||{rev:0,hash:''},lh=hashStr(parts[k]??'[]'),rh=hashStr(r.json);
+    if(r.rev<=b.rev)continue;
+    if(lh===rh){base[k]={rev:r.rev,hash:rh};CB[k]=r.json;continue}
+    if(lh===b.hash){parts[k]=r.json;base[k]={rev:r.rev,hash:rh};CB[k]=r.json;changed=true}
+    else dirty=true;
+  }
+  if(changed){S=joinParts(parts);normalize();saveLocal();render();toast('已從雲端更新')}
+  cmSave();
+  if(dirty)cloudSchedule(300);else if(CLOUD.status!=='syncing')setCloud('ok');
+}
+function cloudSchedule(ms){if(!CLOUD.user)return;clearTimeout(CLOUD.timer);CLOUD.timer=setTimeout(()=>cloudPush(),ms??1500)}
+async function cloudPush(force){
+  if(!CLOUD.user||S.sample)return;
+  if(CLOUD.busy){CLOUD.again=true;return}
+  if(!navigator.onLine){setCloud('offline');return}
+  CLOUD.busy=true;setCloud('syncing');
+  const fv=firebase.firestore.FieldValue;let merged=false;
+  try{
+    const parts=splitParts(S),base=CM.base||(CM.base={});
+    for(const k of new Set([...Object.keys(parts),...Object.keys(base)])){
+      const json=parts[k]??(k==='core'?'{}':'[]'),h=hashStr(json),b=base[k]||{rev:0,hash:''};
+      if(h===b.hash&&!force)continue;
+      const ref=partsCol().doc(k);
+      const res=await CLOUD.db.runTransaction(async tx=>{
+        const snap=await tx.get(ref),rd=snap.exists?snap.data():null,rrev=rd?rd.rev:0;
+        let out=json;
+        if(rrev!==b.rev&&rd){const bv=CB[k]!==undefined?JSON.parse(CB[k]):undefined;out=JSON.stringify(merge3(bv,JSON.parse(json),JSON.parse(rd.json)))}
+        if(rd&&rd.json===out)return {rev:rrev,json:out};
+        tx.set(ref,{json:out,rev:rrev+1,device:CM.device,updatedAt:fv.serverTimestamp()});
+        return {rev:rrev+1,json:out};
+      });
+      base[k]={rev:res.rev,hash:hashStr(res.json)};CB[k]=res.json;
+      if(res.json!==json){parts[k]=res.json;merged=true}
+    }
+    if(merged){S=joinParts(parts);normalize();saveLocal();render()}
+    CM.lastSync=Date.now();cmSave();setCloud('ok');
+  }catch(e){setCloud(navigator.onLine?'error':'offline',errMsg(e));setTimeout(()=>cloudSchedule(0),30000)}
+  finally{CLOUD.busy=false;if(CLOUD.again){CLOUD.again=false;cloudSchedule(200)}}
+}
+function errMsg(e){const c=(e&&e.code)||'';return ({
+  'auth/invalid-credential':'帳號或密碼錯誤','auth/wrong-password':'帳號或密碼錯誤','auth/user-not-found':'沒有這個帳號，請先按「建立帳號」',
+  'auth/invalid-email':'Email 格式不正確','auth/email-already-in-use':'這個 Email 已經有帳號，請直接登入','auth/weak-password':'密碼至少要 6 個字',
+  'auth/network-request-failed':'網路連線失敗','auth/too-many-requests':'嘗試太多次，請稍後再試','auth/operation-not-allowed':'Firebase 還沒開啟 Email 登入',
+  'permission-denied':'雲端拒絕存取，請檢查 Firestore 安全規則','unavailable':'暫時連不上雲端，稍後自動重試'})[c]||((e&&e.message)||'發生錯誤')}
+function firstLinkSheet(){
+  const rs=JSON.parse((CLOUD.remote.core||{}).json||'{}'),rn=(rs.students||[]).length;
+  sheet(`<h2>雲端已經有資料</h2><div class="stack">
+  <p style="margin:0">雲端有 <b>${rn}</b> 位學生，這台有 <b>${S.students.length}</b> 位。要用哪一份？</p>
+  <button class="btn primary block" onclick="App.cloudTake()">用雲端的資料（這台的會被取代）</button>
+  <button class="btn block" onclick="App.cloudUpload()">用這台的資料（雲端的會被取代）</button>
+  <p class="muted" style="margin:0">通常選「用雲端的資料」。只有這台才是最新、最完整的資料時，才選第二個。不確定的話，先到下方複製備份。</p></div>`);
+}
+function cloudCardInner(){
+  const cfg=cloudCfg();
+  if(!cfg)return `<p class="muted" style="margin:0">開啟後，資料會自動存到你自己的 Firebase 雲端。換手機不會遺失，手機和電腦也能同時使用。</p>
+    <label class="f">貼上 Firebase 設定（firebaseConfig）<textarea class="inp" id="fb-cfg" rows="4" placeholder="const firebaseConfig = { apiKey: ... }" style="font-family:var(--f-num);font-size:12px"></textarea></label>
+    <button class="btn primary block" onclick="App.cloudCfg()">儲存設定</button>`;
+  if(!CLOUD.user)return `<p class="muted" style="margin:0">專案：${esc(cfg.projectId)}。${CLOUD.status==='error'&&CLOUD.msg?`<span style="color:var(--seal)">${esc(CLOUD.msg)}</span>`:'登入後就會開始同步。'}</p>
+    <label class="f">Email<input id="cl-email" type="email" autocomplete="username" autocapitalize="off" value="${esc(CM.email||'')}"></label>
+    <label class="f">密碼（至少 6 個字）<input id="cl-pw" type="password" autocomplete="current-password"></label>
+    <div class="grid2"><button class="btn primary" id="cl-login" onclick="App.cloudLogin(false)">登入</button><button class="btn" onclick="App.cloudLogin(true)">建立帳號</button></div>
+    <p class="muted" style="margin:0">第一次使用請按「建立帳號」，之後其他裝置用同一組 Email 和密碼登入。</p>
+    <button class="btn sm" style="align-self:flex-start" onclick="App.cloudCfgClear()">更換 Firebase 設定</button>`;
+  const st={ok:'✓ 已同步',syncing:'同步中…',offline:'離線中，連線後會自動同步',error:'同步出錯：'+CLOUD.msg}[CLOUD.status]||'';
+  const t=CM.lastSync?new Date(CM.lastSync):null;
+  return `<div class="cloud-st" data-st="${CLOUD.status}"><b>${esc(st)}</b><span>${esc(CLOUD.user.email||'')}${t?` · 上次同步 ${md(fmt(t))} ${pad(t.getHours())}:${pad(t.getMinutes())}`:''}</span></div>
+    <div class="grid2"><button class="btn" onclick="App.cloudNow()">立即同步</button><button class="btn" onclick="App.cloudLogout()">登出</button></div>
+    <p class="muted" style="margin:0">資料仍然先存在這台裝置，沒網路也能用。兩台裝置同時修改時會自動合併。</p>`;
+}
+function cloudStart(){if(inFrame())return;if(cloudCfg()){setCloud(navigator.onLine?'login':'offline');fbInit()}else cloudBadge()}
+addEventListener('online',()=>{if(CLOUD.user)cloudSchedule(0);else if(cloudCfg()&&!CLOUD.ready)fbInit()});
+addEventListener('offline',()=>{if(CLOUD.user)setCloud('offline')});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&CLOUD.user)cloudSchedule(0)});
+const cloudActions={
+  async cloudCfg(){const c=parseFbConfig($('#fb-cfg').value);if(!c){toast('找不到 apiKey、projectId、appId，請整段貼上');return}
+    CM.cfg=c;cmSave();setCloud('login');render();if(await fbInit())toast('已儲存，請登入')},
+  cloudCfgClear(){confirmSheet('清除這台的 Firebase 設定？資料不會被刪除。','清除',()=>{if(CLOUD.auth)CLOUD.auth.signOut();delete CM.cfg;cmSave();toast('重新整理後生效');setTimeout(()=>location.reload(),600)})},
+  async cloudLogin(create){const em=$('#cl-email').value.trim(),pw=$('#cl-pw').value;if(!em||!pw){toast('請輸入 Email 和密碼');return}
+    if(!(await fbInit()))return;
+    try{create?await CLOUD.auth.createUserWithEmailAndPassword(em,pw):await CLOUD.auth.signInWithEmailAndPassword(em,pw);toast('已登入')}
+    catch(e){CLOUD.msg=errMsg(e);CLOUD.status='error';render();toast(CLOUD.msg)}},
+  cloudLogout(){confirmSheet('登出雲端？這台的資料會保留，但不再同步。','登出',()=>{CLOUD.auth.signOut();toast('已登出')})},
+  cloudNow(){cloudPush(true)},
+  cloudTake(){closeSheet();takeRemote();listen()},
+  async cloudUpload(){closeSheet();CM.base={};for(const [k,v] of Object.entries(CLOUD.remote))CM.base[k]={rev:v.rev,hash:''};CB={};
+    // 用這台覆蓋：把雲端版本當作基準，強制寫入這台的內容
+    for(const [k,v] of Object.entries(CLOUD.remote))CB[k]=v.json;   // 基準＝雲端，所以合併結果就是這台
+    cmSave();await cloudPush(true);listen();toast('已用這台的資料更新雲端')},
+};
+
 /* ---------- actions ---------- */
 const App=window.App={
+  ...cloudActions,
   close:closeSheet,walkIn,stuForm,slotForm,openStu,payForm,pfKind,pfFill,pfPts,pfAmt,termForm,tfPreview,slotEdit,mkForm,mkSlots,
   go(t){UI.tab=t;render();window.scrollTo(0,0)},
   closeForm,clScope,lookup,lkSearch,report,_tick:()=>tick(880,.1),
@@ -1351,9 +1580,10 @@ const App=window.App={
   askClearSample(){confirmSheet('清除範例學生與紀錄，保留時段與期別設定，開始使用你自己的資料？','清除範例',()=>{S={settings:S.settings,slots:S.slots,terms:S.terms,levels:S.levels,closures:S.closures||[],students:[],purchases:[],records:[],makeups:[],confirmed:{}};save();UI.tab='students';render()},false)}
 };
 S=load()||seed();
-S.levels=S.levels||defaultLevels();S.confirmed=S.confirmed||{};S.makeups=S.makeups||[];S.closures=S.closures||[];
+normalize();
 render();
-setTimeout(()=>checkSeed(false),400);
+cloudStart();
+setTimeout(()=>{if(!CM.uid)checkSeed(false)},400);
 })();
 </script>
 
