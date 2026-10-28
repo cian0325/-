@@ -1007,7 +1007,8 @@ function rosterImport(d){
   ${has?`<div class="seg" style="align-self:flex-start"><button class="${App._rebuild?'':'on'}" onclick="App._rebuild=false;App._import(JSON.stringify(App._roster))">加到現有資料</button><button class="${App._rebuild?'on':''}" onclick="App._rebuild=true;App._import(JSON.stringify(App._roster))">全部重建</button></div>`:''}
   ${S.sample?'<div class="hint">目前是範例資料。匯入後會<b>清除範例</b>（學生、點名、繳費、範例期別與停課），只留下你的名單。</div>':App._rebuild?`<div class="hint" style="background:color-mix(in srgb,var(--seal) 12%,var(--card))"><b>會先清除目前的 ${S.students.length} 位學生、${S.slots.length} 個時段、${S.terms.length} 個期別、${nPay} 筆繳費、${nRec} 筆點名</b>，再用這份名單重建。班級類別和設定會保留。建議先到下方複製備份。</div>`:'<div class="hint">會加到現有資料裡，<b>不會刪除</b>任何學生、點名或繳費紀錄。同名學生會略過。</div>'}
   <div class="kpis"><div class="kpi"><span>新增學生</span><b>${P.newStu.length} 位</b></div><div class="kpi"><span>新增時段</span><b>${P.newSlots.length} 個</b></div><div class="kpi"><span>新增類別</span><b>${P.newLv.length} 個</b></div></div>
-  ${P.skip.length?`<p class="muted" style="margin:0">已經有同名學生，略過：${P.skip.map(s=>esc(s.name)).join('、')}</p>`:''}
+  ${d.records&&d.records.length?`<div class="hint">含 <b>${d.records.length}</b> 筆點名紀錄（${d.records.filter(r=>r.status==='absent').length} 筆沒來，會列入待補課）。已經在 App 裡點過的同一堂不會被覆蓋。</div>`:''}
+  ${P.skip.length?`<p class="muted" style="margin:0">已經有的 ${P.skip.length} 位學生：會更新班別、時段和這一期的繳費，不會重複新增。</p>`:''}
   ${P.unsched.length?`<p class="muted" style="margin:0">沒有星期，先不排時段：${P.unsched.map(s=>esc(s.name)).join('、')}。匯入後到學生頁「調整時段」。</p>`:''}
   <label class="f">名單從哪天開始上課<input type="date" id="ri-from" value="${d.from||today()}"></label>
   ${d.term?`<div class="hint">也會建立期別「<b>${esc(d.term.name)}</b>」${d.term.start} 起 ${d.term.weeks} 週，每堂 ${money(d.term.price)}${termsSorted().some(t=>t.name===d.term.name)&&!S.sample?'（已存在，沿用）':''}。${d.bill?`<br>並幫新增的學生各開一張繳費單：${d.bill.paid?(d.bill.unpaid&&d.bill.unpaid.length?`<b>${esc(d.bill.unpaid.join('、'))}</b> 未收，其他已收`:'全部<b>已收</b>'):'全部<b>未收</b>'}。`:''}${d.closures&&d.closures.length?`<br>停課：${d.closures.map(c=>md(c.date)).join('、')}${d.closures[0].reason?'（'+esc(d.closures[0].reason)+'）':''}`:''}${d.term.topics?'<br>含各班每週課程主題。':''}</div>`:`<p class="muted" style="margin:0">收費方式預設為整期制。匯入後到「設定 → 期別」新增這一期，再到「繳費」幫學生建立繳費。</p>`}
@@ -1016,6 +1017,7 @@ function rosterImport(d){
 }
 function rosterApply(d,from){
   if(S.sample||App._rebuild===true)S={settings:S.settings,levels:S.levels,slots:[],terms:[],closures:[],students:[],purchases:[],records:[],makeups:[],confirmed:{}};App._rebuild=false;
+  from=d.from||from;
   const P=rosterPlan(d,S);
   P.newLv.forEach(n=>S.levels.push({id:uid(),name:n,tone:S.levels.reduce((m,l)=>Math.max(m,l.tone),-1)+1}));
   const lvId=n=>(S.levels.find(l=>l.name===n)||{}).id||'';
@@ -1025,13 +1027,38 @@ function rosterApply(d,from){
   if(d.term){T=S.terms.find(t=>t.name===d.term.name);if(!T){T={id:uid(),name:d.term.name,start:d.term.start,weeks:+d.term.weeks,price:+d.term.price};S.terms.push(T)}
     if(d.term.topics){T.topics={};for(const [n,arr] of Object.entries(d.term.topics)){const id=lvId(n);if(id)T.topics[id]=arr}}}
   P.cls=0;(d.closures||[]).forEach(c=>{if(!S.closures.some(x=>x.date===c.date&&!x.slotId)){S.closures.push({id:uid(),date:c.date,slotId:null,reason:c.reason||''});P.cls++}});
-  P.bills=0;P.billAmt=0;
-  P.newStu.forEach(s=>{const sid=s.wd!=null?slotId(s):null;
-    const st={id:uid(),name:s.name,level:lvId(s.level),plan:s.plan||'term',phone:s.phone||'',note:s.note||(s.wd==null?`${s.level||''} 時段待確認`:''),active:true,slotHist:sid?[{from,slotId:sid}]:[]};
-    S.students.push(st);
-    if(T&&d.bill&&sid&&st.plan==='term'){const n=termLessons(st,T),date=d.bill.date||T.start;
-      const paid=!!d.bill.paid&&!(d.bill.unpaid||[]).includes(st.name);
-      S.purchases.push({id:uid(),sid:st.id,kind:'term',termId:T.id,lessons:n,amount:n*T.price,adj:0,adjReason:'',date,paid,paidDate:paid?date:'',method:paid?(d.bill.method||''):'',note:''});P.bills++;P.billAmt+=n*T.price;if(!paid)P.unpaid=(P.unpaid||0)+1}});
+  P.bills=0;P.billAmt=0;P.upd=0;P.recs=0;
+  const byName=n=>S.students.find(x=>x.active&&x.name===n);
+  for(const s of d.students){
+    const hist=s.slotHist?s.slotHist.map(h=>({from:h.from,slotId:slotId(h)})).filter(h=>h.slotId):(s.wd!=null&&slotId(s)?[{from,slotId:slotId(s)}]:[]);
+    let st=byName(s.name);
+    if(!st){st={id:uid(),name:s.name,level:lvId(s.level),plan:s.plan||'term',phone:s.phone||'',note:s.note||(s.wd==null?`${s.level||''} 時段待確認`:''),active:true,slotHist:hist};S.students.push(st)}
+    else{const before=JSON.stringify([st.level,st.plan,st.slotHist]);
+      st.level=lvId(s.level)||st.level;if(s.plan)st.plan=s.plan;
+      if(hist.length&&(s.slotHist||curSlot(st)!==hist[hist.length-1].slotId))st.slotHist=hist;
+      if(before!==JSON.stringify([st.level,st.plan,st.slotHist]))P.upd++}
+    if(!T||!d.bill)continue;
+    const mine=S.purchases.filter(p=>p.sid===st.id&&p.termId===T.id&&p.kind==='term');
+    if(st.plan==='points'){
+      S.purchases=S.purchases.filter(p=>!mine.includes(p));
+      if(s.points&&!S.purchases.some(p=>p.sid===st.id&&p.src===d.id)){const q=s.points;
+        S.purchases.push({id:uid(),sid:st.id,kind:'points',termId:null,lessons:q.lessons,amount:q.amount||0,adj:0,adjReason:'',date:q.date||T.start,paid:!!q.paid,paidDate:q.paid?(q.date||T.start):'',method:'',note:q.note||'',src:d.id})}
+      continue}
+    if(!st.slotHist.length)continue;
+    const n=sessions(st,T.start,tEnd(T)).length,date=d.bill.date||T.start;
+    const paid=!!d.bill.paid&&!(d.bill.unpaid||[]).includes(st.name);
+    if(mine.length){const p=mine[0];p.lessons=n;p.amount=n*T.price+(+p.adj||0);if(paid&&!p.paid){p.paid=true;p.paidDate=date}
+      S.purchases=S.purchases.filter(x=>x===p||!mine.includes(x))}
+    else S.purchases.push({id:uid(),sid:st.id,kind:'term',termId:T.id,lessons:n,amount:n*T.price,adj:0,adjReason:'',date,paid,paidDate:paid?date:'',method:paid?(d.bill.method||''):'',note:'',src:d.id});
+    P.bills++;P.billAmt+=n*T.price;if(!paid)P.unpaid=(P.unpaid||0)+1;
+  }
+  for(const r of d.records||[]){const st=byName(r.name),k=slotId(r);if(!st||!k)continue;
+    if(rec(st.id,r.date,k))continue;
+    S.records.push({id:uid(),sid:st.id,date:r.date,key:k,status:r.status});P.recs++;
+    if(r.date<today())S.confirmed[r.date+'|'+k]=S.confirmed[r.date+'|'+k]||{at:Date.now()}}
+  // 移除沒有學生、沒有紀錄的空時段（例如時間改了之後留下的舊時段）
+  const used=new Set([...S.students.flatMap(s=>(s.slotHist||[]).map(h=>h.slotId)),...S.records.map(r=>r.key),...S.makeups.map(m=>m.slotId)]);
+  S.slots=S.slots.filter(x=>used.has(x.id));
   return P;
 }
 
@@ -1049,7 +1076,8 @@ async function checkSeed(force){
   try{const r=await fetch('seed.enc.json',{cache:'no-store'});if(!r.ok)return;seedEnc=await r.json()}catch(e){return}
   if(!seedEnc||!seedEnc.id)return;
   const st=S.settings.seeds||{};
-  if(!force&&st[seedEnc.id])return;
+  if(!force&&(st[seedEnc.id]||App._seedShown===seedEnc.id))return;
+  App._seedShown=seedEnc.id;
   seedSheet();
 }
 function seedSheet(){
@@ -1319,6 +1347,7 @@ async function onUser(u){
     else if(!Object.keys(CM.base||{}).length){firstLinkSheet();return}
     else{applyRemote();await cloudPush(true)}
     listen();
+    setTimeout(()=>checkSeed(false),800);
   }catch(e){setCloud(navigator.onLine?'error':'offline',errMsg(e))}
 }
 function listen(){
@@ -1440,7 +1469,7 @@ const App=window.App={
   seedSkip(){S.settings.seeds=Object.assign({},S.settings.seeds,{[seedEnc.id]:'skipped'});save();closeSheet();toast('之後可到「設定 → 備份與還原」匯入')},
   seedOpen(){if(seedEnc)seedSheet();else checkSeed(true).then(()=>{if(!seedEnc)toast('網站上沒有預設名單')})},
   rosterGo(){if(App._seedId){S.settings.seeds=Object.assign({},S.settings.seeds,{[App._seedId]:today()});App._seedId=null}
-    const P=rosterApply(App._roster,$('#ri-from').value||today());save();UI.tab='students';UI.lv='all';closeSheet();render();toast(`已匯入 ${P.newStu.length} 位學生、${P.newSlots.length} 個時段${P.bills?`、${P.bills} 張繳費單`:''}`)},
+    const P=rosterApply(App._roster,$('#ri-from').value||today());save();UI.tab='students';UI.lv='all';closeSheet();render();toast(`已匯入：新增 ${P.newStu.length} 位、更新 ${P.upd} 位、${P.recs} 筆點名`)},
   teCopy(i){const te=termEndInfo({T:termById(App._te.T),N:nextTerm(termById(App._te.T))});copyText(termEndMsg(te.rows[i],te),$('#te-text'))},
   teCopyAll(){const te=termEndInfo({T:termById(App._te.T),N:nextTerm(termById(App._te.T))});copyText(te.rows.map(x=>termEndMsg(x,te)).join('\n\n────────\n\n'),$('#te-text'))},
   teCreditAll(){const T=termById(App._te.T),N=nextTerm(T),te=termEndInfo({T,N});
@@ -1584,7 +1613,7 @@ S=load()||seed();
 normalize();
 render();
 cloudStart();
-setTimeout(()=>{if(!CM.uid)checkSeed(false)},400);
+setTimeout(()=>{if(!CLOUD.user)checkSeed(false)},2500);
 })();
 </script>
 
