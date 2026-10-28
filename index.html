@@ -835,7 +835,7 @@ function vStats(){
 
 /* ---------- 設定 ---------- */
 function vSettings(){
-  const st=S.settings,inFrame=window.self!==window.top,td=today();
+  const st=S.settings,td=today();
   return `<div class="stack">
   <div class="card" style="padding:14px"><div class="stack">
     <label class="f">教室名稱<input id="set-studio" value="${esc(st.studio)}" onchange="App.set('studio',this.value)"></label>
