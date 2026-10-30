@@ -837,7 +837,7 @@ function weekBlock(){
 function vStats(){
   const ts=termsSorted();
   if(!ts.length)return `<div class="stack">
-  ${weekBlock()}${weekBlock()}<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div></div>`;
+  ${weekBlock()}<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div></div>`;
   const T=termById(UI.termId)||termAt(today())||ts[ts.length-1];UI.termId=T.id;const end=tEnd(T);
   const act=S.students.filter(s=>s.active);
   const rows=act.map(s=>({s,c:termStats(s.id,T),b:bal(s.id,end<today()?end:today())}));
@@ -849,6 +849,7 @@ function vStats(){
   const mv=months.map(m=>S.purchases.filter(p=>p.paid&&(p.paidDate||p.date).startsWith(m)).reduce((a,p)=>a+ +p.amount,0));const mx=Math.max(1,...mv);
   const N=nextTerm(T);
   return `<div class="stack">
+  ${weekBlock()}
   <div class="chips">${ts.map(x=>`<button class="chip ${x.id===T.id?'on':''}" onclick="App.term('${x.id}')">${esc(x.name)}</button>`).join('')}</div>
   <p class="muted" style="margin:0">${T.start} ～ ${end} · ${T.weeks} 週 · 每堂 ${money(T.price)}</p>
   <div class="kpis"><div class="kpi"><span>本期收入</span><b>${money(income)}</b></div><div class="kpi"><span>本期未收</span><b class="${owe?'bal-neg':''}">${money(owe)}</b></div><div class="kpi"><span>出席率</span><b>${pr+ab?Math.round(pr/(pr+ab)*100):0}%</b></div></div>
