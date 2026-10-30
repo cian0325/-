@@ -350,6 +350,19 @@ nav.tabs button:active{transform:scale(.88)}
 .cloud-st[data-st="offline"]{background:color-mix(in srgb,var(--amber) 12%,transparent)}.cloud-st[data-st="offline"] b{color:var(--amber)}
 .cloud-st[data-st="syncing"] b{color:var(--indigo)}
 @media (prefers-reduced-motion:reduce){.cloud-ind::after{animation:none!important}}
+
+.wk-nav{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2)}
+.wk-chart{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:14px 10px 10px;height:170px}
+.wk-day{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;height:100%}
+.wk-day em{font-style:normal;font-size:13px;font-weight:600;height:18px}
+.wk-bar{flex:1;width:100%;max-width:30px;position:relative}
+.wk-bar i{position:absolute;left:0;right:0;bottom:0;border-radius:6px 6px 2px 2px;min-height:2px}
+.wk-bar .exp{background:var(--indigo-soft)}
+.wk-bar .got{background:var(--indigo)}
+.wk-day span{font-size:12px;color:var(--ink-2);text-align:center;line-height:1.2}
+.wk-day small{font-size:10px}
+.wk-day.today span{color:var(--seal);font-weight:700}
+.wk-day.fut em{color:var(--ink-2);font-weight:400}
 </style>
 
 <div class="bg" aria-hidden="true"></div>
@@ -512,7 +525,7 @@ function seed(){
 }
 
 /* ---------- UI ---------- */
-const UI={tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
+const UI={week:0,tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
 const TITLES={roll:'點名',makeup:'調課',students:'學生',pay:'繳費',stats:'統計',settings:'設定'};
 function render(){
   $('#title').textContent=TITLES[UI.tab];$('#studio').textContent=(S.settings.studio?S.settings.studio+' · ':'')+md(today())+' 週'+WD[wd(today())];
@@ -793,9 +806,38 @@ function pfPts(n){$('#pf-lessons').value=n;$('#pf-amount').value=n*S.settings.un
 function pfAmt(){const n=+$('#pf-lessons').value||0;if($('#pf-kind').dataset.v==='points')$('#pf-amount').value=n*S.settings.unitPrice;else{const T=termById($('#pf-term').value);if(T)$('#pf-amount').value=n*T.price}}
 
 /* ---------- 統計 ---------- */
+/* ---------- 本週到課 ---------- */
+// 一週 = 週一到週日；人次 = 狀態為「到」的紀錄數（正課、補課、加課都算）
+function weekStats(off){
+  const t=today(),from=addDays(t,-((wd(t)+6)%7)+7*off),to=addDays(from,6);
+  const days=[];let P=0,A=0,E=0,MK=0,lv={};
+  for(let i=0;i<7;i++){const d=addDays(from,i);
+    const rs=S.records.filter(r=>r.date===d);
+    const p=rs.filter(r=>r.status==='present'),a=rs.filter(r=>r.status==='absent');
+    let e=0;for(const sl of daySlots(d))e+=regularOn(d,sl.id).length;
+    const closed=daySlots(d).length>0&&daySlots(d).every(sl=>isClosed(d,sl.id));
+    for(const r of p){const s=stu(r.sid);if(r.mk||(s&&!isRegular(s,r)))MK++;const l=s&&level(s.level),n=l?l.name:'未分類';lv[n]=(lv[n]||0)+1}
+    P+=p.length;if(d<=t){A+=a.length;E+=e}
+    days.push({d,p:p.length,a:a.length,e,closed,future:d>t});
+  }
+  return {from,to,days,P,A,E,MK,lv};
+}
+function weekBlock(){
+  const W=weekStats(UI.week),mx=Math.max(1,...W.days.map(x=>Math.max(x.p,x.e))),rate=W.P+W.A?Math.round(W.P/(W.P+W.A)*100):0;
+  const lvs=[...S.levels.map(l=>l.name),'未分類'].filter(n=>W.lv[n]);
+  return `<div class="row"><h3 class="sec-title" style="margin:0">本週到課</h3><span class="spacer"></span>
+  <div class="wk-nav"><button class="btn sm" aria-label="上一週" onclick="App.wk(-1)">‹</button><span class="num">${md(W.from)}–${md(W.to)}</span><button class="btn sm" aria-label="下一週" onclick="App.wk(1)" ${UI.week>=0?'disabled':''}>›</button></div></div>
+  <div class="kpis"><div class="kpi"><span>${UI.week===0?'本週':'這週'}到課人次</span><b>${W.P} 人次</b></div><div class="kpi"><span>沒來</span><b>${W.A} 人次</b></div><div class="kpi"><span>出席率</span><b>${W.P+W.A?rate+'%':'–'}</b></div></div>
+  <div class="card wk-chart">${W.days.map(x=>`<div class="wk-day ${x.d===today()?'today':''} ${x.future?'fut':''}">
+    <em class="num">${x.closed?'停':x.future?(x.e?x.e:''):x.p}</em>
+    <div class="wk-bar">${x.e&&!x.closed?`<i class="exp" style="height:${x.e/mx*100}%"></i>`:''}${x.p?`<i class="got" style="height:${x.p/mx*100}%"></i>`:''}</div>
+    <span>${WD[wd(x.d)]}<br><small class="num">${md(x.d)}</small></span></div>`).join('')}</div>
+  <p class="muted" style="margin:0">深色是到課人次，淺色是該天應到人數${W.MK?`；含補課／加課 ${W.MK} 人次`:''}。${UI.week===0?'今天以後的日子顯示應到人數。':''}${lvs.length?'<br>'+lvs.map(n=>`${esc(n)} ${W.lv[n]}`).join('・'):''}</p>`;
+}
 function vStats(){
   const ts=termsSorted();
-  if(!ts.length)return `<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div>`;
+  if(!ts.length)return `<div class="stack">
+  ${weekBlock()}${weekBlock()}<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div></div>`;
   const T=termById(UI.termId)||termAt(today())||ts[ts.length-1];UI.termId=T.id;const end=tEnd(T);
   const act=S.students.filter(s=>s.active);
   const rows=act.map(s=>({s,c:termStats(s.id,T),b:bal(s.id,end<today()?end:today())}));
@@ -1534,6 +1576,7 @@ const App=window.App={
   q(v){UI.q=v;render();const i=$('#stu-q');if(i){i.focus();i.setSelectionRange(v.length,v.length)}},
   pf(v){UI.payFilter=v;render()},
   term(id){UI.termId=id;render()},
+  wk(n){UI.week=Math.min(0,UI.week+n);render()},
   toggle(id){UI.open[id]=!UI.open[id];render()},
   mark(id,k){const dr=draftOf(UI.date,UI.key);dr[id]=dr[id]===k?undefined:k;UI.pop=dr[id]?id+k:null;if(dr[id])tick(k==='present'?880:520);render();UI.pop=null},
   allPresent(){const dr=draftOf(UI.date,UI.key);let n=0;rosterOf(UI.date,UI.key).forEach(o=>{if(!dr[o.id]){dr[o.id]='present';n++}});render();toast(`${n} 位標為到，請按確認點名`)},
