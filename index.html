@@ -363,6 +363,25 @@ nav.tabs button:active{transform:scale(.88)}
 .wk-day small{font-size:10px}
 .wk-day.today span{color:var(--seal);font-weight:700}
 .wk-day.fut em{color:var(--ink-2);font-weight:400}
+
+.wa{padding:4px 0 12px}
+.wa-head{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;padding:10px 14px;text-align:left}
+.wa-head b{font-family:var(--f-display);font-size:17px;color:var(--amber)}
+.wa-row{align-items:center}
+.wa-row .main{cursor:pointer}
+.wa-st{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.wa-todo{background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber)}
+.wa-sch{background:var(--indigo-soft);color:var(--indigo)}
+.wa-ok{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green)}
+.wa-pre{background:var(--soft);color:var(--ink-2)}
+.wa-miss{margin:8px 14px 0;padding-top:8px;border-top:1px dashed var(--line);display:flex;flex-direction:column;gap:6px}
+.wa-miss b{font-size:13px;color:var(--seal)}
+.wa-mrow{display:flex;gap:10px;align-items:baseline;border:0;background:var(--soft);border-radius:10px;padding:8px 10px;text-align:left;font-size:13px}
+.wa-mrow span:nth-child(2){flex:1;min-width:0}
+.wa-mrow i{font-style:normal;color:var(--indigo);font-weight:700;white-space:nowrap}
+.wa .btn.block{width:calc(100% - 28px);margin-left:14px}
+.wa textarea{margin:8px 14px 0;width:calc(100% - 28px)}
+.wa-none{padding:12px 14px;color:var(--green);font-weight:700}
 </style>
 
 <div class="bg" aria-hidden="true"></div>
@@ -822,6 +841,49 @@ function weekStats(off){
   }
   return {from,to,days,P,A,E,MK,lv};
 }
+// 本週沒到課明細：沒來的紀錄（含補課狀態）＋過去日子還沒點名的人
+function weekAbsentData(W){
+  const t=today(),rows=[],miss=[];
+  for(const x of W.days){
+    for(const r of S.records.filter(r=>r.date===x.d&&r.status==='absent')){const s=stu(r.sid);if(!s)continue;
+      const sl=slot(r.key);let st,cls='wa-todo',act='';
+      if(r.date>t){st='預先請假';cls='wa-pre'}
+      const ms=S.makeups.filter(m=>m.absId===r.id);
+      const cr=ms.find(m=>m.type==='credit'),done=ms.find(m=>mkStatus(m)==='done'),sch=ms.find(m=>['scheduled','overdue'].includes(mkStatus(m)));
+      if(r.mk){st='補課沒來';cls='wa-todo'}
+      else if(cr){st='已折抵學費';cls='wa-ok'}
+      else if(done){st='已補 '+md(done.date);cls='wa-ok'}
+      else if(sch){st='已排補課 '+md(sch.date)+' '+(slot(sch.slotId)||{}).start;cls='wa-sch'}
+      else if(!st){st='待補課';act=r.id}
+      rows.push({s,r,sl,st,cls,act});
+    }
+    if(x.d<t)for(const sl of daySlots(x.d)){if(isClosed(x.d,sl.id))continue;
+      for(const s of regularOn(x.d,sl.id))if(!rec(s.id,x.d,sl.id))miss.push({s,d:x.d,sl})}
+  }
+  return {rows,miss};
+}
+function weekAbsent(W){
+  const {rows,miss}=weekAbsentData(W);
+  if(!rows.length&&!miss.length)return `<div class="card wa-none">${UI.week===0?'本週':'這週'}沒有人缺課 ✓</div>`;
+  const open=UI.waOpen!==false;
+  return `<div class="card wa">
+  <button class="wa-head" onclick="App.waToggle()"><b>沒到課 ${rows.length} 人次</b>${miss.length?`<span class="pill unpaid">${miss.length} 人次未點名</span>`:''}<span class="spacer"></span><span class="muted">${open?'收起 ▴':'展開 ▾'}</span></button>
+  ${open?`${rows.map(o=>`<div class="li wa-row">${av(o.s)}<div class="main" onclick="App.openStu('${o.s.id}')"><div class="t">${esc(o.s.name)} ${lvTag(o.s)}</div>
+    <div class="s num">週${WD[wd(o.r.date)]} ${md(o.r.date)} ${o.sl?o.sl.start+'–'+o.sl.end:''}${o.r.mk?' · 補課':''}</div></div>
+    <div class="r"><span class="wa-st ${o.cls}">${esc(o.st)}</span>${o.act?`<br><button class="btn sm" onclick="App.mkForm('${o.act}')">安排補課</button>`:''}</div></div>`).join('')}
+  ${miss.length?`<div class="wa-miss"><b>還沒點名</b>${[...new Set(miss.map(m=>m.d+'|'+m.sl.id))].map(k=>{const [d,id]=k.split('|'),ms=miss.filter(m=>m.d===d&&m.sl.id===id);
+    return `<button class="wa-mrow" onclick="App.gotoRoll('${d}','${id}')"><span class="num">週${WD[wd(d)]} ${md(d)} ${ms[0].sl.start}</span><span>${ms.map(m=>esc(m.s.name)).join('、')}</span><i>去點名 ›</i></button>`}).join('')}</div>`:''}
+  ${rows.length?`<button class="btn block" style="margin-top:8px" onclick="App.waCopy()">複製沒到課清單</button><textarea class="inp" id="wa-text" rows="5" hidden></textarea>`:''}`:''}
+  </div>`;
+}
+function weekAbsentText(){
+  const W=weekStats(UI.week),{rows}=weekAbsentData(W);
+  const L=[`【${md(W.from)}–${md(W.to)} 沒到課名單】共 ${rows.length} 人次`];
+  for(const x of W.days){const rs=rows.filter(o=>o.r.date===x.d);if(!rs.length)continue;
+    L.push(`週${WD[wd(x.d)]} ${md(x.d)}`);
+    for(const o of rs)L.push(`・${o.s.name}（${(level(o.s.level)||{}).name||''} ${o.sl?o.sl.start:''}）${o.st}`)}
+  return L.join('\n');
+}
 function weekBlock(){
   const W=weekStats(UI.week),mx=Math.max(1,...W.days.map(x=>Math.max(x.p,x.e))),rate=W.P+W.A?Math.round(W.P/(W.P+W.A)*100):0;
   const lvs=[...S.levels.map(l=>l.name),'未分類'].filter(n=>W.lv[n]);
@@ -832,6 +894,7 @@ function weekBlock(){
     <em class="num">${x.closed?'停':x.future?(x.e?x.e:''):x.p}</em>
     <div class="wk-bar">${x.e&&!x.closed?`<i class="exp" style="height:${x.e/mx*100}%"></i>`:''}${x.p?`<i class="got" style="height:${x.p/mx*100}%"></i>`:''}</div>
     <span>${WD[wd(x.d)]}<br><small class="num">${md(x.d)}</small></span></div>`).join('')}</div>
+  ${weekAbsent(W)}
   <p class="muted" style="margin:0">深色是到課人次，淺色是該天應到人數${W.MK?`；含補課／加課 ${W.MK} 人次`:''}。${UI.week===0?'今天以後的日子顯示應到人數。':''}${lvs.length?'<br>'+lvs.map(n=>`${esc(n)} ${W.lv[n]}`).join('・'):''}</p>`;
 }
 function vStats(){
@@ -1578,6 +1641,8 @@ const App=window.App={
   pf(v){UI.payFilter=v;render()},
   term(id){UI.termId=id;render()},
   wk(n){UI.week=Math.min(0,UI.week+n);render()},
+  waToggle(){UI.waOpen=UI.waOpen===false;render()},
+  waCopy(){copyText(weekAbsentText(),$('#wa-text'))},
   toggle(id){UI.open[id]=!UI.open[id];render()},
   mark(id,k){const dr=draftOf(UI.date,UI.key);dr[id]=dr[id]===k?undefined:k;UI.pop=dr[id]?id+k:null;if(dr[id])tick(k==='present'?880:520);render();UI.pop=null},
   allPresent(){const dr=draftOf(UI.date,UI.key);let n=0;rosterOf(UI.date,UI.key).forEach(o=>{if(!dr[o.id]){dr[o.id]='present';n++}});render();toast(`${n} 位標為到，請按確認點名`)},
