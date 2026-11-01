@@ -382,6 +382,17 @@ nav.tabs button:active{transform:scale(.88)}
 .wa .btn.block{width:calc(100% - 28px);margin-left:14px}
 .wa textarea{margin:8px 14px 0;width:calc(100% - 28px)}
 .wa-none{padding:12px 14px;color:var(--green);font-weight:700}
+
+.mo-chart{display:flex;gap:8px;align-items:stretch;height:160px;padding:14px 12px 10px}
+.mo-col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:none;padding:0;border-radius:8px}
+.mo-col em{font-style:normal;font-size:12px;font-weight:600;height:16px}
+.mo-bar{flex:1;width:100%;max-width:38px;position:relative}
+.mo-bar i{position:absolute;left:0;right:0;bottom:0;border-radius:6px 6px 2px 2px;min-height:2px}
+.mo-bar .a{background:color-mix(in srgb,var(--amber) 30%,transparent)}
+.mo-bar .p{background:var(--indigo)}
+.mo-col span{font-size:12px;color:var(--ink-2)}
+.mo-col.on span{color:var(--ink);font-weight:700}
+.mo-col.on .mo-bar .p{background:var(--seal)}
 </style>
 
 <div class="bg" aria-hidden="true"></div>
@@ -544,7 +555,7 @@ function seed(){
 }
 
 /* ---------- UI ---------- */
-const UI={week:0,tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
+const UI={month:null,mOnly:true,week:0,tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
 const TITLES={roll:'點名',makeup:'調課',students:'學生',pay:'繳費',stats:'統計',settings:'設定'};
 function render(){
   $('#title').textContent=TITLES[UI.tab];$('#studio').textContent=(S.settings.studio?S.settings.studio+' · ':'')+md(today())+' 週'+WD[wd(today())];
@@ -884,6 +895,40 @@ function weekAbsentText(){
     for(const o of rs)L.push(`・${o.s.name}（${(level(o.s.level)||{}).name||''} ${o.sl?o.sl.start:''}）${o.st}`)}
   return L.join('\n');
 }
+/* ---------- 每月到課 ---------- */
+const ymOf=d=>d.slice(0,7);
+function monthStats(ym){
+  const t=today(),[y,m]=ym.split('-').map(Number),last=new Date(y,m,0).getDate();
+  let P=0,A=0,MK=0,E=0,U=0;const lv={},st={};
+  const add=(s,k)=>{const o=st[s.id]=st[s.id]||{s,p:0,a:0,mk:0,u:0};o[k]++;const n=(level(s.level)||{}).name||'未分類';const l=lv[n]=lv[n]||{p:0,a:0,mk:0};if(k!=='u')l[k]++};
+  for(let i=1;i<=last;i++){const d=`${ym}-${pad(i)}`;if(d>t)break;
+    for(const r of S.records){if(r.date!==d)continue;const s=stu(r.sid);if(!s)continue;
+      if(r.status==='present'){P++;add(s,'p');if(r.mk||!isRegular(s,r)){MK++;add(s,'mk')}}else{A++;add(s,'a')}}
+    if(d<t)for(const sl of daySlots(d)){if(isClosed(d,sl.id))continue;for(const s of regularOn(d,sl.id)){E++;if(!rec(s.id,d,sl.id)){U++;add(s,'u')}}}
+  }
+  return {ym,P,A,MK,E,U,lv,st:Object.values(st)};
+}
+function monthList(){
+  const set=new Set(S.records.map(r=>ymOf(r.date)).filter(x=>x<=ymOf(today())));set.add(ymOf(today()));
+  return [...set].sort();
+}
+function monthBlock(){
+  const ms=monthList();if(!ms.includes(UI.month))UI.month=ymOf(today());
+  const M=monthStats(UI.month),rate=M.P+M.A?Math.round(M.P/(M.P+M.A)*100):0;
+  const trend=ms.slice(-6).map(ym=>({ym,...(()=>{const x=monthStats(ym);return {p:x.P,a:x.A}})()})),mx=Math.max(1,...trend.map(x=>x.p+x.a));
+  const mLabel=ym=>(+ym.slice(5))+'月';
+  const lvs=[...S.levels.map(l=>l.name),'未分類'].filter(n=>M.lv[n]);
+  const rows=M.st.filter(o=>!UI.mOnly||o.a||o.u).sort((a,b)=>(b.a-a.a)||(b.u-a.u)||a.s.name.localeCompare(b.s.name,'zh-Hant'));
+  return `<div class="row"><h3 class="sec-title" style="margin:0">每月到課</h3><span class="spacer"></span><button class="btn sm" onclick="App.mXlsx()">匯出 Excel</button></div>
+  <div class="chips">${ms.map(ym=>`<button class="chip ${ym===UI.month?'on':''}" onclick="App.mon('${ym}')">${ym.slice(0,4)!==today().slice(0,4)?ym.slice(0,4)+' ':''}${mLabel(ym)}</button>`).join('')}</div>
+  <div class="kpis"><div class="kpi"><span>${mLabel(M.ym)}到課人次</span><b>${M.P} 人次</b></div><div class="kpi"><span>沒來</span><b>${M.A} 人次</b></div><div class="kpi"><span>出席率</span><b>${M.P+M.A?rate+'%':'–'}</b></div></div>
+  <p class="muted" style="margin:0">應到 ${M.E} 人次${M.MK?`・其中補課／加課 ${M.MK} 人次`:''}${M.U?`・<span style="color:var(--seal)">還有 ${M.U} 人次沒點名</span>`:''}${ymOf(today())===M.ym?'（統計到今天）':''}</p>
+  <div class="card mo-chart">${trend.map(x=>`<button class="mo-col ${x.ym===UI.month?'on':''}" onclick="App.mon('${x.ym}')"><em class="num">${x.p}</em><div class="mo-bar"><i class="a" style="height:${(x.p+x.a)/mx*100}%"></i><i class="p" style="height:${x.p/mx*100}%"></i></div><span>${mLabel(x.ym)}</span></button>`).join('')}</div>
+  <p class="muted" style="margin:0">深色是到課人次，上面淺色是沒來人次。點長條可以切換月份。</p>
+  ${lvs.length?`<div class="card tbl-wrap"><table class="tbl"><thead><tr><th>類別</th><th>到</th><th>沒來</th><th>補／加</th><th>出席率</th></tr></thead><tbody>${lvs.map(n=>{const l=M.lv[n];return `<tr><td>${esc(n)}</td><td>${l.p}</td><td>${l.a}</td><td>${l.mk}</td><td>${l.p+l.a?Math.round(l.p/(l.p+l.a)*100)+'%':'–'}</td></tr>`}).join('')}<tr><td>合計</td><td>${M.P}</td><td>${M.A}</td><td>${M.MK}</td><td>${M.P+M.A?rate+'%':'–'}</td></tr></tbody></table></div>`:''}
+  <div class="row"><b style="font-size:14px">學生明細</b><span class="spacer"></span><div class="seg"><button class="${UI.mOnly?'on':''}" onclick="App.mOnly(true)">有缺課的</button><button class="${UI.mOnly?'':'on'}" onclick="App.mOnly(false)">全部</button></div></div>
+  ${rows.length?`<div class="card tbl-wrap"><table class="tbl"><thead><tr><th>學生</th><th>到</th><th>沒來</th><th>補／加</th><th>未點名</th><th>出席率</th></tr></thead><tbody>${rows.map(o=>`<tr onclick="App.openStu('${o.s.id}')" style="cursor:pointer"><td>${esc(o.s.name)} ${lvTag(o.s)}</td><td>${o.p}</td><td style="${o.a?'color:var(--amber);font-weight:700':''}">${o.a}</td><td>${o.mk}</td><td style="${o.u?'color:var(--seal)':''}">${o.u}</td><td>${o.p+o.a?Math.round(o.p/(o.p+o.a)*100)+'%':'–'}</td></tr>`).join('')}</tbody></table></div>`:`<div class="card wa-none">${mLabel(M.ym)}沒有人缺課 ✓</div>`}`;
+}
 function weekBlock(){
   const W=weekStats(UI.week),mx=Math.max(1,...W.days.map(x=>Math.max(x.p,x.e))),rate=W.P+W.A?Math.round(W.P/(W.P+W.A)*100):0;
   const lvs=[...S.levels.map(l=>l.name),'未分類'].filter(n=>W.lv[n]);
@@ -900,7 +945,7 @@ function weekBlock(){
 function vStats(){
   const ts=termsSorted();
   if(!ts.length)return `<div class="stack">
-  ${weekBlock()}<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div></div>`;
+  ${weekBlock()}${monthBlock()}<div class="card empty"><b>還沒有期別</b>到「設定」新增第一期</div></div>`;
   const T=termById(UI.termId)||termAt(today())||ts[ts.length-1];UI.termId=T.id;const end=tEnd(T);
   const act=S.students.filter(s=>s.active);
   const rows=act.map(s=>({s,c:termStats(s.id,T),b:bal(s.id,end<today()?end:today())}));
@@ -913,6 +958,7 @@ function vStats(){
   const N=nextTerm(T);
   return `<div class="stack">
   ${weekBlock()}
+  ${monthBlock()}
   <div class="chips">${ts.map(x=>`<button class="chip ${x.id===T.id?'on':''}" onclick="App.term('${x.id}')">${esc(x.name)}</button>`).join('')}</div>
   <p class="muted" style="margin:0">${T.start} ～ ${end} · ${T.weeks} 週 · 每堂 ${money(T.price)}</p>
   <div class="kpis"><div class="kpi"><span>本期收入</span><b>${money(income)}</b></div><div class="kpi"><span>本期未收</span><b class="${owe?'bal-neg':''}">${money(owe)}</b></div><div class="kpi"><span>出席率</span><b>${pr+ab?Math.round(pr/(pr+ab)*100):0}%</b></div></div>
@@ -1641,6 +1687,17 @@ const App=window.App={
   pf(v){UI.payFilter=v;render()},
   term(id){UI.termId=id;render()},
   wk(n){UI.week=Math.min(0,UI.week+n);render()},
+  mon(ym){UI.month=ym;render()},
+  mOnly(v){UI.mOnly=v;render()},
+  async mXlsx(){const M=monthStats(UI.month);try{const X=await loadXlsx(),wb=X.utils.book_new();
+    const rows=[[`${S.settings.studio||''} ${M.ym} 到課統計`],[],['學生','類別','時段','到','沒來','補課／加課','未點名','出席率']];
+    M.st.sort((a,b)=>a.s.name.localeCompare(b.s.name,'zh-Hant')).forEach(o=>rows.push([o.s.name,(level(o.s.level)||{}).name||'',slotText(slot(curSlot(o.s))),o.p,o.a,o.mk,o.u,o.p+o.a?Math.round(o.p/(o.p+o.a)*100)/100:'']));
+    rows.push([]);rows.push(['合計','','',M.P,M.A,M.MK,M.U,M.P+M.A?Math.round(M.P/(M.P+M.A)*100)/100:'']);
+    const ws=X.utils.aoa_to_sheet(rows);ws['!cols']=[10,8,12,6,6,10,8,8].map(w=>({wch:w}));X.utils.book_append_sheet(wb,ws,'學生');
+    const det=[['日期','星期','時段','學生','類別','出席','類型']];
+    S.records.filter(r=>ymOf(r.date)===M.ym&&r.date<=today()).sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>{const s=stu(r.sid),sl=slot(r.key);if(!s)return;det.push([r.date,'週'+WD[wd(r.date)],sl?sl.start:'',s.name,(level(s.level)||{}).name||'',r.status==='present'?'到':'沒來',r.mk?'補課':isRegular(s,r)?'正課':'加課'])});
+    const ws2=X.utils.aoa_to_sheet(det);ws2['!cols']=[11,6,7,10,8,6,6].map(w=>({wch:w}));X.utils.book_append_sheet(wb,ws2,'點名明細');
+    await saveFile(`${M.ym}_到課統計.xlsx`,X.write(wb,{bookType:'xlsx',type:'array'}),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}catch(e){toast('匯出失敗，請確認網路連線後再試')}},
   waToggle(){UI.waOpen=UI.waOpen===false;render()},
   waCopy(){copyText(weekAbsentText(),$('#wa-text'))},
   toggle(id){UI.open[id]=!UI.open[id];render()},
