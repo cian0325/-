@@ -11,7 +11,18 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
-<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}.wk-days{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
+.wk-days button{border:0;background:var(--card);box-shadow:var(--sh-1);border-radius:var(--r-md);padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--ink)}
+.wk-days b{font-family:var(--f-display);font-size:var(--fs-lg)}
+.wk-days small{font-size:11px;color:var(--ink-2)}
+.wk-days button.today b{color:var(--seal)}
+.wk-days button.on{background:var(--indigo);box-shadow:none}
+.wk-days button.on b,.wk-days button.on small{color:var(--card)}
+.slot-head .slot-time{display:flex;flex-direction:column;align-items:center;min-width:52px}
+.slot-head .slot-time b{font-size:var(--fs-lg)}
+.slot-head .slot-time small{font-size:var(--fs-xs);color:var(--ink-2)}
+.slot-head .chev{color:var(--ink-3);font-size:var(--fs-lg)}
+</style>
 </head><body>
 <script>window.FIREBASE_CONFIG={apiKey:"AIzaSyDb96G_R9sEMudHAW6v5avvnMzE0c-4wXY",authDomain:"rollbook-cb3af.firebaseapp.com",projectId:"rollbook-cb3af",storageBucket:"rollbook-cb3af.firebasestorage.app",messagingSenderId:"643279455251",appId:"1:643279455251:web:549f12c03f17425a98abe6"};</script>
 <script>window.HIDE_WORKS=true;/* 作品（拍照）功能還沒在正式版開放；測試版由 make_test.py 拿掉這行 */</script>
@@ -518,7 +529,7 @@ function seed(){
 }
 
 /* ---------- UI ---------- */
-const UI={walkins:{},month:null,mOnly:true,week:0,tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
+const UI={sv:'week',swd:null,sslot:null,walkins:{},month:null,mOnly:true,week:0,tab:'roll',date:today(),key:null,q:'',lv:'all',payFilter:'all',termId:null,open:{},drafts:{},editing:{}};
 // 作品（拍照）功能開關：正式版在 index.html 設 window.HIDE_WORKS=true 先不開放
 const WORKS_ON=!window.HIDE_WORKS;
 if(!WORKS_ON){const b=document.querySelector('#tabs button[data-tab="works"]');if(b)b.remove()}
@@ -686,15 +697,45 @@ function vStudents(){
   const list=S.students.filter(s=>(UI.lv==='all'||s.level===UI.lv||(UI.lv==='none'&&!level(s.level)))&&(!q||s.name.includes(q)||st(s).includes(q)))
     .sort((a,b)=>(b.active-a.active)||S.levels.findIndex(l=>l.id===a.level)-S.levels.findIndex(l=>l.id===b.level)||a.name.localeCompare(b.name,'zh-Hant'));
   const none=act.filter(s=>!level(s.level)).length;
-  return `<div class="stack">
+  const seg=`<div class="seg wide"><button class="${UI.sv==='week'?'on':''}" onclick="App.sv('week')">依星期</button><button class="${UI.sv!=='week'?'on':''}" onclick="App.sv('class')">依班級</button></div>`;
+  if(UI.sv==='week'&&!q)return `<div class="stack">${seg}${vStuWeek(act)}
+  <div class="row"><span class="spacer"></span><button class="btn" onclick="App.lookup()">學生查詢</button><button class="btn primary" onclick="App.stuForm()">＋ 新增</button></div>
+  <input class="inp" id="stu-q" placeholder="搜尋姓名或星期" value="${esc(UI.q)}" oninput="App.q(this.value,event)"></div>`;
+  return `<div class="stack">${seg}
   <div class="lv-grid">${S.levels.map(l=>`<button class="lv-card ${UI.lv===l.id?'on':''}" onclick="App.lvf('${l.id}')"><span class="lv lv${l.tone%6}">${esc(l.name)}</span><b class="num">${cnt(l.id)}</b><small>人</small></button>`).join('')}</div>
   <div class="row"><button class="chip ${UI.lv==='all'?'on':''}" onclick="App.lvf('all')">全部 ${act.length} 人</button>${none?`<button class="chip ${UI.lv==='none'?'on':''}" onclick="App.lvf('none')">未分類 ${none}</button>`:''}<span class="spacer"></span><button class="btn" onclick="App.lookup()">學生查詢</button><button class="btn primary" onclick="App.stuForm()">＋ 新增</button></div>
-  <input class="inp" id="stu-q" placeholder="搜尋姓名或星期" value="${esc(UI.q)}" oninput="App.q(this.value)">
+  <input class="inp" id="stu-q" placeholder="搜尋姓名或星期" value="${esc(UI.q)}" oninput="App.q(this.value,event)">
   ${list.length?`<div class="card">${list.map(s=>{const b=bal(s.id),p=pendingAbs(s.id).length;
     return `<button class="li" onclick="App.openStu('${s.id}')" ${s.active?'':'style="opacity:.5"'}>${av(s)}<div class="main"><div class="t">${esc(s.name)} ${lvTag(s)} ${s.active?'':'<span class="pill plan">停用</span>'}</div>
     <div class="s">${esc(st(s))} · ${s.plan==='points'?'點數制':'整期制'}${p?` · <span style="color:var(--amber)">待補 ${p}</span>`:''}</div></div>
     <div class="r"><span class="big ${balCls(b)}">${b}</span><span class="unit">堂</span></div></button>`}).join('')}</div>`
   :`<div class="card empty"><b>找不到學生</b>${q?'換個關鍵字試試':'按「＋ 新增」加入學生'}</div>`}</div>`;
+}
+/* 學生名單：依星期 → 時段（班級）→ 學生。學生歸在「今天生效」的固定時段（curSlot）。 */
+function vStuWeek(act){
+  const by={};for(const s of act){const k=curSlot(s)||'';(by[k]=by[k]||[]).push(s)}
+  const slots=slotsSorted(),days=[1,2,3,4,5,6,0].filter(d=>slots.some(x=>x.wd===d));
+  const pend=slots.filter(x=>x.wd==null||x.wd==='');const noSlot=(by['']||[]).concat(...act.filter(s=>{const k=curSlot(s);return k&&!slot(k)}).map(s=>[s]));
+  const dayN=d=>slots.filter(x=>x.wd===d).reduce((n,x)=>n+(by[x.id]||[]).length,0);
+  const todayWd=parse(today()).getDay();
+  if(UI.swd===null||(UI.swd!=='x'&&!days.includes(UI.swd)))UI.swd=days.includes(todayWd)?todayWd:(days[0]??'x');
+  const extra=pend.length||noSlot.length;
+  const tabs=`<div class="wk-days">${days.map(d=>`<button class="${UI.swd===d?'on':''}${d===todayWd?' today':''}" onclick="App.swd(${d})"><b>${WD[d]}</b><small class="num">${dayN(d)} 人</small></button>`).join('')}${extra?`<button class="${UI.swd==='x'?'on':''}" onclick="App.swd('x')"><b>其他</b><small class="num">${pend.reduce((n,x)=>n+(by[x.id]||[]).length,0)+noSlot.length} 人</small></button>`:''}</div>`;
+  const row=s=>{const b=bal(s.id),p=pendingAbs(s.id).length;return `<button class="li" onclick="App.openStu('${s.id}')">${av(s)}<div class="main"><div class="t">${esc(s.name)}</div>
+    <div class="s">${s.plan==='points'?'點數制':'整期制'}${p?` · <span style="color:var(--amber)">待補 ${p}</span>`:''}</div></div>
+    <div class="r"><span class="big ${balCls(b)}">${b}</span><span class="unit">堂</span></div></button>`};
+  const sortN=a=>a.slice().sort((x,y)=>x.name.localeCompare(y.name,'zh-Hant'));
+  const block=(x,list)=>{const open=UI.sslot===x.id||UI.sslot==='all',lv=level(x.level);
+    return `<div class="card"><button class="li slot-head" onclick="App.sslot('${x.id}')" aria-expanded="${open}">
+      <div class="slot-time num"><b>${esc(x.start)}</b><small>${esc(x.end||'')}</small></div>
+      <div class="main"><div class="t">${lv?`<span class="lv lv${lv.tone%6}">${esc(lv.name)}</span>`:''} ${esc(x.name||'')}</div><div class="s">${list.length} 位學生</div></div>
+      <span class="chev">${open?'▾':'▸'}</span></button>
+      ${open?(list.length?sortN(list).map(row).join(''):'<div class="empty" style="padding:14px">這個時段還沒有學生</div>'):''}</div>`};
+  let body;
+  if(UI.swd==='x'){body=pend.map(x=>block(x,by[x.id]||[])).join('')+(noSlot.length?`<div class="card"><div class="li"><div class="main"><div class="t">沒有固定時段</div><div class="s">${noSlot.length} 位學生</div></div></div>${sortN(noSlot).map(row).join('')}</div>`:'')}
+  else{const xs=slots.filter(x=>x.wd===UI.swd);body=xs.length?xs.map(x=>block(x,by[x.id]||[])).join(''):'<div class="card empty"><b>這天沒有課</b></div>'}
+  return `${tabs}${days.length||extra?`<div class="row"><span class="muted">點時段看學生名單</span><span class="spacer"></span><button class="btn ghost sm" onclick="App.sslot('all')">${UI.sslot==='all'?'全部收起':'全部展開'}</button></div>`:''}
+  ${days.length||extra?body:'<div class="card empty"><b>還沒有時段</b>到「設定 → 時段」新增每週的上課時段</div>'}`;
 }
 const slotOptions=sel=>[...S.levels,{id:'',name:'不分類別'}].map(l=>{const xs=slotsSorted().filter(x=>l.id?x.level===l.id:!level(x.level));
   return xs.length?`<optgroup label="${esc(l.name)}">${xs.map(x=>`<option value="${x.id}" ${x.id===sel?'selected':''}>${esc(slotFull(x))}</option>`).join('')}</optgroup>`:''}).join('');
@@ -1573,6 +1614,12 @@ function cloudCardInner(){
 function cloudStart(){if(inFrame())return;if(cloudCfg()){setCloud(navigator.onLine?'login':'offline');fbInit()}else cloudBadge()}
 addEventListener('online',()=>{if(CLOUD.user)cloudSchedule(0);else if(cloudCfg()&&!CLOUD.ready)fbInit()});
 addEventListener('offline',()=>{if(CLOUD.user)setCloud('offline')});
+/* ---------- 輸入法組字（注音、拼音） ----------
+   組字中每打一個注音都會觸發 input；這時重畫畫面會把打到一半的注音直接送出。
+   所以組字中先不搜尋，選完字（compositionend）再搜尋。 */
+document.addEventListener('compositionstart',()=>{App._ime=true},true);
+document.addEventListener('compositionend',e=>{App._ime=false;const t=e.target;
+  if(t&&t.id==='stu-q')setTimeout(()=>App.q(t.value),0);else if(t&&t.id==='wk-q')setTimeout(()=>App.wkQ(t.value),0)},true);
 /* ---------- 跨日：App 開著過了午夜 ---------- */
 let DAY=today();
 function dayCheck(){
@@ -1842,7 +1889,7 @@ function vWorks(){
   const tot=S.students.reduce((n,x)=>n+((x.album&&x.album.count)||0),0),na=S.students.filter(x=>x.album).length;
   return `<div class="stack">
   <div class="kpis"><div class="kpi"><span>相簿</span><b>${na} 本</b></div><div class="kpi"><span>照片</span><b>${tot} 張</b></div><div class="kpi"><span>雲端空間</span><b>${Math.min(100,Math.round(tot*0.42/10.24))}%</b></div></div>
-  <input class="inp" id="wk-q" placeholder="搜尋學生" value="${esc(WK.q)}" oninput="App.wkQ(this.value)">
+  <input class="inp" id="wk-q" placeholder="搜尋學生" value="${esc(WK.q)}" oninput="App.wkQ(this.value,event)">
   ${list.length?`<div class="card">${list.map(x=>`<button class="li" onclick="App.wkOpen('${x.id}')">${av(x)}<div class="main"><div class="t">${esc(x.name)} ${lvTag(x)}</div><div class="s">${x.album?`${x.album.count||0} 張照片`:'還沒有相簿'}</div></div><span class="muted">${x.album?'開啟 ›':'建立 ›'}</span></button>`).join('')}</div>`:`<div class="card empty"><b>找不到學生</b>換個關鍵字試試</div>`}
   <p class="muted">先選學生再拍照，照片會放進他的相簿。免費空間大約可以放 2,400 張。</p></div>`;
 }
@@ -1976,7 +2023,7 @@ async function wkPrep(files){
     await new Promise(r=>setTimeout(r,0))}
   wkReview()}
 const worksActions={
-  wkQ(v){WK.q=v;render();const i=$('#wk-q');if(i&&i.focus){i.focus();i.setSelectionRange(v.length,v.length)}},
+  wkQ(v,e){if(App._ime||(e&&e.isComposing))return;WK.q=v;render();const i=$('#wk-q');if(i&&i.focus){i.focus();i.setSelectionRange(v.length,v.length)}},
   wkOpen(id){WK.sid=id;WK.photos=null;WK.title=null;WK.term=null;WK.custom=false;WK.err='';render();window.scrollTo(0,0);if(stu(id).album){wkLoad();wkCleanOld(stu(id))}},
   wkBack(){WK.sid=null;WK.photos=null;render()},
   wkReload(){WK.err='';render();wkLoad()},
@@ -2113,6 +2160,9 @@ const App=window.App={
     if(!T){toast('請先到設定新增下一期');return}
     confirmSheet(`把 ${esc(stu(r.sid).name)} ${mdwk(r.date)} 沒來的課，折抵「${esc(T.name)}」的學費？下期需繳的堂數會少 1 堂。${S.purchases.some(p=>p.sid===r.sid&&p.termId===T.id)?'<br><b>這期的繳費單已經開了，請手動修改金額。</b>':''}`,'折抵學費',()=>{S.makeups.push({id:uid(),sid:r.sid,absId:rid,type:'credit',termId:T.id,date:T.start,slotId:null});save();render();toast('已折抵下期學費')},false)},
   sfLv(){const l=$('#sf-level').value,sel=$('#sf-slot');if(!sel)return;const x=slotsSorted().find(x=>x.level===l);if(x)sel.value=x.id},
+  sv(v){UI.sv=v;render()},
+  swd(d){UI.swd=d;UI.sslot=UI.sslot==='all'?'all':null;render()},
+  sslot(id){UI.sslot=id==='all'?(UI.sslot==='all'?null:'all'):(UI.sslot===id?null:id);render()},
   lvf(v){UI.lv=UI.lv===v&&v!=='all'?'all':v;render()},
   lvEdit(id){const l=id?level(id):{name:''};
     sheet(`<h2>${id?'編輯類別':'新增類別'}</h2><div class="stack"><label class="f">類別名稱<input id="lv-name" value="${esc(l.name)}" placeholder="例如：成人班"></label>
@@ -2126,7 +2176,7 @@ const App=window.App={
   shift(n){UI.date=addDays(UI.date,n);UI.key=null;render()},
   setDate(v){if(v){UI.date=v;UI.key=null;render()}},
   session(k){UI.key=k;render()},
-  q(v){UI.q=v;render();const i=$('#stu-q');if(i){i.focus();i.setSelectionRange(v.length,v.length)}},
+  q(v,e){if(App._ime||(e&&e.isComposing))return;UI.q=v;render();const i=$('#stu-q');if(i){i.focus();i.setSelectionRange(v.length,v.length)}},
   pf(v){UI.payFilter=v;render()},
   term(id){UI.termId=id;render()},
   wk(n){UI.week=Math.min(0,UI.week+n);render()},

@@ -69,6 +69,8 @@ S = {
 - 存檔用 `saveFile()`（iPhone 會跳分享選單）。
 - 底部分頁：點名｜調課｜學生｜作品｜帳務。「帳務」內上方切換繳費（`pay`）／統計（`stats`）；設定在頁首右上角齒輪（`#set-btn`）。
 - 調課頁的待補課依學生分組，點學生開 `mkStuSheet(sid)` 再選補課或折抵。
+- 學生頁預設「依星期」（`UI.sv`）：`vStuWeek` 依星期 → 時段 → 學生（學生歸在 `curSlot` 的時段），「依班級」是原本的清單；搜尋框有字時自動用清單。
+- 搜尋框與注音輸入法：組字中（compositionstart～compositionend）不重畫畫面，否則注音會被直接送出。用 document 層級監聽 composition 事件（HTML 的 oncomposition* 屬性無效）。新增會重畫畫面的輸入框時要沿用這個做法。
 - **作品功能在正式版先關閉**：index.html 開頭的 `window.HIDE_WORKS=true` 會拿掉「作品」分頁（`WORKS_ON`）。要開放時刪掉那一行，並同時部署 `albums` 的 Firestore 規則、上傳 `album.html`（家長頁）。
 
 ## 設計
