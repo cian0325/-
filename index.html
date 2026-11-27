@@ -543,7 +543,8 @@ function render(){if(!WORKS_ON&&UI.tab==='works')UI.tab='roll';
   const n=pendingAbs().length+upcomingMk().filter(m=>mkStatus(m)!=='scheduled').length;
   const bd=$('#mk-badge');if(bd){bd.textContent=n;bd.hidden=!n}
   const v={roll:vRoll,makeup:vMakeup,students:vStudents,works:vWorks,pay:vPay,stats:vStats,settings:vSettings}[UI.tab];
-  $('#main').innerHTML=(S.sample?`<div class="banner"><span>目前顯示的是範例資料</span><button onclick="App.askClearSample()">清除範例</button></div>`:'')+(UI.tab==='pay'||UI.tab==='stats'?`<div style="margin-bottom:12px">${moneySeg()}</div>`:'')+v();
+  const fx=fix38List().length;
+  $('#main').innerHTML=(fx?`<div class="banner" style="background:color-mix(in srgb,var(--seal) 12%,transparent);color:var(--seal)"><span>有 ${fx} 位學生的 38 期繳費紀錄需要補回</span><button style="color:var(--seal)" onclick="App.fix38()">查看</button></div>`:'')+(S.sample?`<div class="banner"><span>目前顯示的是範例資料</span><button onclick="App.askClearSample()">清除範例</button></div>`:'')+(UI.tab==='pay'||UI.tab==='stats'?`<div style="margin-bottom:12px">${moneySeg()}</div>`:'')+v();
 }
 document.querySelectorAll('#tabs button,#set-btn').forEach(b=>b.onclick=()=>{
   // 帳務：在繳費／統計之間切換時，按底部按鈕留在目前那一頁
@@ -737,6 +738,17 @@ function vStuWeek(act){
   return `${tabs}${days.length||extra?`<div class="row"><span class="muted">點時段看學生名單</span><span class="spacer"></span><button class="btn ghost sm" onclick="App.sslot('all')">${UI.sslot==='all'?'全部收起':'全部展開'}</button></div>`:''}
   ${days.length||extra?body:'<div class="card empty"><b>還沒有時段</b>到「設定 → 時段」新增每週的上課時段</div>'}`;
 }
+/* 一次性修復（2026-11-27）：續繳 39 期時點到舊的 38 期紀錄編輯，38 期那筆被改成 39 期。
+   補回 38 期（堂數＝38 期應上），日期留在 8 月的那幾筆 39 期，日期移給 38 期、39 期改成修復當天。
+   做完記在 settings.fix38，不會再出現。 */
+const FIX38=[['筱熙',13],['亦捷',13],['秉鎰',13],['念沁',13],['幸妍',13],['子華',13],['品喬',9],['怡潔',13],['昀晏',13],['令偊',13]];
+function fix38List(){if(S.settings.fix38||S.sample)return [];
+  const t38=S.terms.find(t=>t.name==='38期'),t39=S.terms.find(t=>t.name==='39期冬季班');if(!t38||!t39)return [];
+  return FIX38.map(([n,l])=>{const s=S.students.find(x=>x.name===n);if(!s)return null;
+    if(S.purchases.some(p=>p.sid===s.id&&p.termId===t38.id))return null;
+    const p39=S.purchases.find(p=>p.sid===s.id&&p.termId===t39.id);if(!p39)return null;
+    const moved=p39.date<t39.start&&p39.date<'2026-10-01';
+    const first=((s.slotHist||[]).map(h=>h.from).sort()[0])||t38.start;return {s,l,amt:l*t38.price,d38:moved?p39.date:(first>t38.start?first:t38.start),p39,moved,t38}}).filter(Boolean)}
 const slotOptions=sel=>[...S.levels,{id:'',name:'不分類別'}].map(l=>{const xs=slotsSorted().filter(x=>l.id?x.level===l.id:!level(x.level));
   return xs.length?`<optgroup label="${esc(l.name)}">${xs.map(x=>`<option value="${x.id}" ${x.id===sel?'selected':''}>${esc(slotFull(x))}</option>`).join('')}</optgroup>`:''}).join('');
 function stuForm(id){
@@ -816,8 +828,10 @@ function payForm(sid,pid,opt){
   const defTerm=p&&p.termId?p.termId:opt.termId?opt.termId:(()=>{const n=cur&&nextTerm(cur);const has=cur&&S.purchases.some(x=>x.sid===sid&&x.termId===cur.id);return ((has&&n)?n:(cur||termsSorted().slice(-1)[0]||{})).id})();
   sheet(`<h2>${p?'編輯繳費':'購買堂數'}</h2><div class="stack">
   <label class="f">學生<select id="pf-sid" onchange="App.pfFill(true)" ${p?'disabled':''}>${actives.map(x=>`<option value="${x.id}" ${x.id===sid?'selected':''}>${esc(x.name)}（${esc(slotText(slot(curSlot(x))))}）</option>`).join('')}</select></label>
-  <div class="seg" id="pf-kind" data-v="${kind}"><button class="${kind==='term'?'on':''}" onclick="App.pfKind('term')">整期</button><button class="${kind==='points'?'on':''}" onclick="App.pfKind('points')">點數</button></div>
-  <label class="f" id="pf-term-w" ${kind==='term'?'':'hidden'}>期別<select id="pf-term" onchange="App.pfFill(true)">${termsSorted().map(x=>`<option value="${x.id}" ${x.id===defTerm?'selected':''}>${esc(x.name)}（${md(x.start)}–${md(tEnd(x))}，${x.weeks} 週）</option>`).join('')}</select></label>
+  <div class="seg" id="pf-kind" data-v="${kind}"><button class="${kind==='term'?'on':''}" ${p?'disabled':''} onclick="App.pfKind('term')">整期</button><button class="${kind==='points'?'on':''}" ${p?'disabled':''} onclick="App.pfKind('points')">點數</button></div>
+  ${p&&kind==='term'?`<div class="hint">這筆是 <b>${esc((termById(p.termId)||{}).name||'')}</b> 的繳費，期別不能改。<br>要繳下一期，請按「＋購買堂數」新增一筆，這筆會保留。
+    <button class="btn sm primary" style="margin-top:8px" onclick="App.payForm('${sid}')">＋ 新增下一期的繳費</button></div>`:''}
+  <label class="f" id="pf-term-w" ${kind==='term'?'':'hidden'}>期別<select id="pf-term" onchange="App.pfFill(true)" ${p?'disabled':''}>${termsSorted().map(x=>`<option value="${x.id}" ${x.id===defTerm?'selected':''}>${esc(x.name)}（${md(x.start)}–${md(tEnd(x))}，${x.weeks} 週）</option>`).join('')}</select></label>
   <div class="chips" id="pf-pts" ${kind==='points'?'':'hidden'}>${[5,10,20,30].map(n=>`<button class="chip" onclick="App.pfPts(${n})">${n} 堂</button>`).join('')}</div>
   <div class="hint" id="pf-hint" hidden></div>
   <div id="pf-credit" class="stack" style="gap:6px" hidden></div>
@@ -2161,6 +2175,18 @@ const App=window.App={
     confirmSheet(`把 ${esc(stu(r.sid).name)} ${mdwk(r.date)} 沒來的課，折抵「${esc(T.name)}」的學費？下期需繳的堂數會少 1 堂。${S.purchases.some(p=>p.sid===r.sid&&p.termId===T.id)?'<br><b>這期的繳費單已經開了，請手動修改金額。</b>':''}`,'折抵學費',()=>{S.makeups.push({id:uid(),sid:r.sid,absId:rid,type:'credit',termId:T.id,date:T.start,slotId:null});save();render();toast('已折抵下期學費')},false)},
   sfLv(){const l=$('#sf-level').value,sel=$('#sf-slot');if(!sel)return;const x=slotsSorted().find(x=>x.level===l);if(x)sel.value=x.id},
   sv(v){UI.sv=v;render()},
+  fix38(){const L=fix38List();if(!L.length){render();return}const td=today();
+    sheet(`<h2>補回 38 期繳費紀錄</h2>
+    <p class="muted" style="margin-top:0">這些學生續繳 39 期時，38 期那筆被改成了 39 期。按「補回」會新增下面的 38 期紀錄，39 期那筆保留不動${L.some(x=>x.moved)?'（日期在 8 月的會改成今天）':''}。</p>
+    <div class="card" style="box-shadow:none;background:var(--soft)">${L.map(x=>`<div class="li"><div class="main"><div class="t">${esc(x.s.name)}</div>
+      <div class="s">新增 38期 ${x.l} 堂 ${money(x.amt)} · ${md(x.d38)} 已收${x.moved?` · 39期日期 ${md(x.p39.date)} → ${md(td)}`:''}</div></div>
+      <div class="r"><span class="muted">補回後剩</span> <b class="num">${bal(x.s.id)+x.l}</b></div></div>`).join('')}</div>
+    <p class="muted">金額以 38 期每堂 ${money(L[0].t38.price)} 計算；有優惠的話，補回後點那筆紀錄修改金額即可。</p>
+    <div class="grid2"><button class="btn" onclick="App.close()">先不要</button><button class="btn primary" onclick="App.fix38Do()">補回 ${L.length} 筆</button></div>`)},
+  fix38Do(){const L=fix38List(),td=today();
+    for(const x of L){S.purchases.push({id:uid(),sid:x.s.id,kind:'term',termId:x.t38.id,lessons:x.l,amount:x.amt,adj:0,adjReason:'',date:x.d38,paid:true,paidDate:x.d38,method:'',note:'補回（續繳時被改成 39 期）'});
+      if(x.moved){x.p39.date=td;x.p39.paidDate=td}}
+    S.settings.fix38=td;save();closeSheet();render();toast(`已補回 ${L.length} 筆 38 期繳費紀錄`)},
   swd(d){UI.swd=d;UI.sslot=UI.sslot==='all'?'all':null;render()},
   sslot(id){UI.sslot=id==='all'?(UI.sslot==='all'?null:'all'):(UI.sslot===id?null:id);render()},
   lvf(v){UI.lv=UI.lv===v&&v!=='all'?'all':v;render()},
@@ -2242,7 +2268,7 @@ const App=window.App={
   savePay(pid){const raw=$('#pf-lessons').value;if(raw===''||+raw<0){toast('請輸入堂數');return}
     const k=$('#pf-kind').dataset.v,paid=$('#pf-paid').checked,date=$('#pf-date').value||today();
     const d={sid:$('#pf-sid').value,kind:k,termId:k==='term'?$('#pf-term').value:null,lessons:+raw,amount:+$('#pf-amount').value||0,date,paid,method:$('#pf-method').value,note:$('#pf-note').value.trim()};
-    if(pid){const p=S.purchases.find(x=>x.id===pid),was=p.paid;Object.assign(p,d);p.paidDate=paid?(was&&p.paidDate?p.paidDate:today()):''}
+    if(pid){const p=S.purchases.find(x=>x.id===pid),was=p.paid;d.kind=p.kind;d.termId=p.termId;Object.assign(p,d);p.paidDate=paid?(was&&p.paidDate?p.paidDate:today()):''}
     else{const np={id:uid(),...d,paidDate:paid?date:''};
       if(k==='term'){np.adj=+$('#pf-adj').value||0;np.adjReason=$('#pf-adjr').value.trim();const T=termById(d.termId);
         document.querySelectorAll('.pf-cr').forEach(x=>{if(x.checked)S.makeups.push({id:uid(),sid:d.sid,absId:x.value,type:'credit',termId:d.termId,purchaseId:np.id,date:T?T.start:date,slotId:null})})}
